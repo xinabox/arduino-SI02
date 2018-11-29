@@ -1,4 +1,4 @@
-# ☒CHIP SI02
+# xCHIP SI02
 <img src="extras/SI02 V0.5.0.JPG" width="35%" height="auto" align="right">
 Sensor Module based on the MAG3110 3-axis, digital magnetometer and  MMA8653FC 3-axis, digital accelerometer.
 
