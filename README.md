@@ -13,3 +13,6 @@ The SI02 ☒CHIP is housed in an extremely compact 2U×2U ☒CHIP with four conn
 More information on the MAG3110 can be found in the [datasheet](https://media.digikey.com/pdf/Data%20Sheets/NXP%20PDFs/MAG3110.pdf).
 
 More information on the MMA8653FC can be found in the [datasheet](http://cache.freescale.com/files/sensors/doc/data_sheet/MMA8653FC.pdf).
+
+## Other Libraries
+https://github.com/Flummy/FluMMA865x
