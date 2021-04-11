@@ -12,9 +12,10 @@ void setup()
 
 void loop()
 {
-    Serial.println(SI02.getAX());
-    Serial.println(SI02.getAY());
-    Serial.println(SI02.getAZ());
+    SI02.read();
+    Serial.println(SI02.Roll());
+    Serial.println(SI02.Pitch());
+    Serial.println(SI02.GForce());
 
     Serial.println(SI02.getMX());
     Serial.println(SI02.getMY());

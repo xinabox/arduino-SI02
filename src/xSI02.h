@@ -3,21 +3,20 @@
 
 #include <Arduino.h>
 
-#define adress_acc 0X1D // MMA8653FC and MMA8652FC
-// adress of registers for MMA8653FC
-#define ctrl_reg1  0x2A
-#define ctrl_reg2  0x2B
-#define ctrl_reg3  0x2C
-#define ctrl_reg4  0x2D
-#define ctrl_reg5  0x2E
-#define int_source  0x0C
-#define status_  0x00
-#define f_setup  0x09
-#define out_x_msb  0x01
-#define out_y_msb  0x03
-#define out_z_msb  0x05
-#define sysmod  0x0B
-#define xyz_data_cfg  0x0E
+#define MMA_8653_DEFAULT_ADDRESS 0x1D
+
+// Auto SLEEP/WAKE interrupt
+#define INT_ASLP   (1<<7)
+// Transient interrupt
+#define INT_TRANS  (1<<5)
+// Orientation (landscape/portrait) interrupt
+#define INT_LNDPRT (1<<4)
+// Pulse detection interrupt
+#define INT_PULSE  (1<<3)
+// Freefall/Motion interrupt
+#define INT_FF_MT  (1<<2)
+// Data ready interrupt
+#define INT_DRDY   (1<<0)
 
 class xSI02
 {
@@ -94,12 +93,37 @@ public:
 	static void vector_normalize(vector<float> *a);
 
 	bool begin();
-	int getAX();
-	int getAY();
-	int getAZ();
+
 	int getMX();
 	int getMY();
 	int getMZ();
+
+
+    //MMA8653(uint8_t addr = MMA_8653_DEFAULT_ADDRESS);
+    void _begin(bool highres = true, uint8_t scale = 2);
+    float getXG();
+    float getYG();
+    float getZG();
+    int8_t getAX();
+    int8_t getAY();
+    int8_t getAZ();
+    float getRho();
+    float getPhi();
+    float getTheta();
+	float getGForce();
+	int16_t getRoll();
+	int16_t getPitch();
+    byte update();
+
+    uint8_t getPLStatus();
+    uint8_t getPulse();
+
+    // Interrupts
+    bool setInterrupt(uint8_t type, uint8_t pin, bool on);
+    bool disableAllInterrupts();
+    void initMotion();
+    void standby();
+    void active();
 
 private:
 	deviceType _device; // chip type
@@ -109,14 +133,29 @@ private:
 	bool did_timeout;
 
 	int16_t testReg(uint8_t address, regAddr reg);
-	void I2C_READ_REG(int ctrlreg_address);
-	void I2C_READ_ACC(int ctrlreg_address);
-	void I2C_SEND(unsigned char REG_ADDRESS, unsigned  char DATA);
-	void ACC_INIT();
-	int result [3];
-int axeXnow ;
-int axeYnow ;
-int axeZnow ;
+
+    uint8_t _read_register(uint8_t offset);
+    void _write_register(uint8_t b, uint8_t offset);
+
+    float geta2d(float gx, float gy);
+    float geta3d(float gx, float gy, float gz);
+    float _getRho(float ax, float ay, float az);
+    float _getPhi(float ax, float ay, float az);
+    float _getTheta(float ax, float ay, float az);
+
+    uint8_t _addr;
+    uint8_t _stat;
+    uint8_t _scale;
+    int16_t _x;
+    int16_t _y;
+    int16_t _z;
+    float _step_factor;
+    bool _highres;
+    float _xg;
+    float _yg;
+    float _zg;
+    float _rad2deg;
+
 };
 
 template <typename Ta, typename Tb, typename To> void xSI02::vector_cross(const vector<Ta> *a, const vector<Tb> *b, vector<To> *out)

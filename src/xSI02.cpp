@@ -6,12 +6,12 @@
 
 // The Arduino two-wire interface uses a 7-bit number for the address,
 // and sets the last bit correctly based on reads and writes
-#define LIS3MDL_SA1_HIGH_ADDRESS  0b0011110
-#define LIS3MDL_SA1_LOW_ADDRESS   0b0011100
+#define LIS3MDL_SA1_HIGH_ADDRESS 0b0011110
+#define LIS3MDL_SA1_LOW_ADDRESS 0b0011100
 
 #define TEST_REG_ERROR -1
 
-#define LIS3MDL_WHO_ID  0x3D
+#define LIS3MDL_WHO_ID 0x3D
 
 // Constructors ////////////////////////////////////////////////////////////////
 
@@ -19,8 +19,11 @@ xSI02::xSI02(void)
 {
   _device = device_auto;
 
-  io_timeout = 0;  // 0 = no timeout
+  io_timeout = 0; // 0 = no timeout
   did_timeout = false;
+
+  _addr = 0x1D;
+  _rad2deg = 180.0 / M_PI;
 }
 
 // Public Methods //////////////////////////////////////////////////////////////
@@ -55,13 +58,19 @@ bool xSI02::init(deviceType device, sa1State sa1)
       if (sa1 != sa1_low && testReg(LIS3MDL_SA1_HIGH_ADDRESS, WHO_AM_I) == LIS3MDL_WHO_ID)
       {
         sa1 = sa1_high;
-        if (device == device_auto) { device = device_LIS3MDL; }
+        if (device == device_auto)
+        {
+          device = device_LIS3MDL;
+        }
       }
       // check SA1 low address unless SA1 was specified to be high
       else if (sa1 != sa1_high && testReg(LIS3MDL_SA1_LOW_ADDRESS, WHO_AM_I) == LIS3MDL_WHO_ID)
       {
         sa1 = sa1_low;
-        if (device == device_auto) { device = device_LIS3MDL; }
+        if (device == device_auto)
+        {
+          device = device_LIS3MDL;
+        }
       }
     }
 
@@ -76,9 +85,9 @@ bool xSI02::init(deviceType device, sa1State sa1)
 
   switch (device)
   {
-    case device_LIS3MDL:
-      address = (sa1 == sa1_high) ? LIS3MDL_SA1_HIGH_ADDRESS : LIS3MDL_SA1_LOW_ADDRESS;
-      break;
+  case device_LIS3MDL:
+    address = (sa1 == sa1_high) ? LIS3MDL_SA1_HIGH_ADDRESS : LIS3MDL_SA1_LOW_ADDRESS;
+    break;
   }
 
   return true;
@@ -142,6 +151,7 @@ uint8_t xSI02::readReg(uint8_t reg)
 // Reads the 3 mag channels and stores them in vector m
 void xSI02::read()
 {
+  update();
   Wire.beginTransmission(address);
   // assert MSB to enable subaddress updating
   Wire.write(OUT_X_L | 0x80);
@@ -201,138 +211,398 @@ int16_t xSI02::testReg(uint8_t address, regAddr reg)
   }
 }
 
-void xSI02::ACC_INIT()
-{
-    I2C_SEND(ctrl_reg1 ,0X00); // standby to be able to configure
-    delay(10);
-
-    I2C_SEND(xyz_data_cfg ,B00000000); // 2G full range mode
-    delay(1);
-//   I2C_SEND(xyz_data_cfg ,B00000001); // 4G full range mode
-//   delay(1);
-//   I2C_SEND(xyz_data_cfg ,B00000010); // 8G full range mode
-//   delay(1);
-
-    I2C_SEND(ctrl_reg1 ,B00000001); // Output data rate at 800Hz, no auto wake, no auto scale adjust, no fast read mode
-    delay(1);
-//   I2C_SEND(ctrl_reg1 ,B00100001); // Output data rate at 200Hz, no auto wake, no auto scale adjust, no fast read mode
-//   delay(1);
-//   I2C_SEND(ctrl_reg1 ,B01000001); // Output data rate at 50Hz, no auto wake, no auto scale adjust, no fast read mode
-//   delay(1);
-//   I2C_SEND(ctrl_reg1 ,B01110001); // Output data rate at 1.5Hz, no auto wake, no auto scale adjust, no fast read mode
-//   delay(1);
-}
-
-//------------------------------------------------------------------
-
-void xSI02::I2C_SEND(unsigned char REG_ADDRESS, unsigned  char DATA)  //SEND data to MMA7660
-{
-
-  Wire.beginTransmission(adress_acc);
-  Wire.write(REG_ADDRESS);
-  Wire.write(DATA);
-  Wire.endTransmission();
-}
-
-//------------------------------------------------------------------
-
-void xSI02::I2C_READ_ACC(int ctrlreg_address) //READ number data from i2c slave ctrl-reg register and return the result in a vector
-{
-  byte REG_ADDRESS[7];
-  int accel[4];
-  int i=0;
-  Wire.beginTransmission(adress_acc); //=ST + (Device Adress+W(0)) + wait for ACK
-  Wire.write(ctrlreg_address);  // store the register to read in the buffer of the wire library
-  Wire.endTransmission(); // actually send the data on the bus -note: returns 0 if transmission OK-
-  Wire.requestFrom(adress_acc,7); // read a number of byte and store them in wire.read (note: by nature, this is called an "auto-increment register adress")
-
-  for(i=0; i<7; i++) // 7 because on datasheet p.19 if FREAD=0, on auto-increment, the adress is shifted
-  // according to the datasheet, because it's shifted, outZlsb are in adress 0x00
-  // so we start reading from 0x00, forget the 0x01 which is now "status" and make the adapation by ourselves
-  //this gives:
-  //0 = status
-  //1= X_MSB
-  //2= X_LSB
-  //3= Y_MSB
-  //4= Y_LSB
-  //5= Z_MSB
-  // 6= Z_LSB
-  {
-  REG_ADDRESS[i]=Wire.read(); //each time you read the write.read it gives you the next byte stored. The couter is reset on requestForm
-}
-
-
-// MMA8653FC gives the answer on 10bits. 8bits are on _MSB, and 2 are on _LSB
-// this part is used to concatenate both, and then put a sign on it (the most significant bit is giving the sign)
-// the explanations are on p.14 of the 'application notes' given by freescale.
-      for (i=1;i<7;i=i+2)
-      {
-      accel[0] = (REG_ADDRESS[i+1]|((int)REG_ADDRESS[i]<<8))>>6; // X
-        if (accel[0]>0x01FF) {accel[1]=(((~accel[0])+1)-0xFC00);} // note: with signed int, this code is optional
-        else {accel[1]=accel[0];} // note: with signed int, this code is optional
-            switch(i){
-            case 1: axeXnow=accel[1];
-                              break;
-            case 3: axeYnow=accel[1];
-                              break;
-             case 5: axeZnow=accel[1];
-                              break;
-                }
-       }
-
-}
-
-//------------------------------------------------------------------
-
-void xSI02::I2C_READ_REG(int ctrlreg_address) //READ number data from i2c slave ctrl-reg register and return the result in a vector
-{
-  unsigned char REG_ADDRESS;
-  int i=0;
-  Wire.beginTransmission(adress_acc); //=ST + (Device Adress+W(0)) + wait for ACK
-  Wire.write(ctrlreg_address);  // register to read
-  Wire.endTransmission();
-  Wire.requestFrom(adress_acc,1); // read a number of byte and store them in write received
-}
-
 bool xSI02::begin()
 {
-	ACC_INIT();
-	init();
-	enableDefault();
-}
-
-int xSI02::getAX()
-{
-	I2C_READ_ACC(0x00);
-	return axeXnow;
-}
-
-int xSI02::getAY()
-{
-	I2C_READ_ACC(0x00);
-	return axeYnow;
-}
-
-int xSI02::getAZ()
-{
-	I2C_READ_ACC(0x00);
-	return axeZnow;
+  init();
+  enableDefault();
+  _begin(false, 2);
+  return true;
 }
 
 int xSI02::getMX()
 {
-	read();
-	return m.x;
+  //read();
+  return m.x;
 }
 
 int xSI02::getMY()
 {
-	read();
-	return m.y;
+  //read();
+  return m.y;
 }
 
 int xSI02::getMZ()
 {
-	read();
-	return m.z;
+  //read();
+  return m.z;
+}
+
+// xSI02::MMA8653(uint8_t addr)
+// {
+//   _addr = addr;
+//   _rad2deg = 180.0 / M_PI;
+// }
+
+//begin private methods
+
+#define MMA_8653_CTRL_REG1 0x2A
+#define MMA_8653_CTRL_REG1_VALUE_ACTIVE 0x01
+#define MMA_8653_CTRL_REG1_VALUE_F_READ 0x02
+
+#define MMA_8653_CTRL_REG2 0x2B
+#define MMA_8653_CTRL_REG2_RESET 0x40
+
+#define MMA_8653_CTRL_REG3 0x2C
+#define MMA_8653_CTRL_REG3_VALUE_OD 0x01
+
+#define MMA_8653_CTRL_REG4 0x2D
+#define MMA_8653_CTRL_REG4_VALUE_INT_ASLP 0x80
+#define MMA_8653_CTRL_REG4_VALUE_INT_ENLP 0x10
+#define MMA_8653_CTRL_REG4_VALUE_INT_FFMT 0x04
+#define MMA_8653_CTRL_REG4_VALUE_INT_DRDY 0x01
+
+#define MMA_8653_CTRL_REG5 0x2E // 1: routed to INT1
+
+#define MMA_8653_PL_STATUS 0x10
+#define MMA_8653_PL_CFG 0x11
+#define MMA_8653_PL_EN 0x40
+
+#define MMA_8653_XYZ_DATA_CFG 0x0E
+#define MMA_8653_2G_MODE 0x00 //Set Sensitivity to 2g
+#define MMA_8653_4G_MODE 0x01 //Set Sensitivity to 4g
+#define MMA_8653_8G_MODE 0x02 //Set Sensitivity to 8g
+
+#define MMA_8653_FF_MT_CFG 0x15
+#define MMA_8653_FF_MT_CFG_ELE 0x80
+#define MMA_8653_FF_MT_CFG_OAE 0x40
+#define MMA_8653_FF_MT_CFG_XYZ 0x38
+
+#define MMA_8653_FF_MT_SRC 0x16
+#define MMA_8653_FF_MT_SRC_EA 0x80
+
+#define MMA_8653_FF_MT_THS 0x17
+
+#define MMA_8653_FF_MT_COUNT 0x18
+
+#define MMA_8653_PULSE_CFG 0x21
+#define MMA_8653_PULSE_CFG_ELE 0x80
+
+#define MMA_8653_PULSE_SRC 0x22
+#define MMA_8653_PULSE_SRC_EA 0x80
+
+// Sample rate
+#define MMA_8653_ODR_800 0x00
+#define MMA_8653_ODR_400 0x08
+#define MMA_8653_ODR_200 0x10
+#define MMA_8653_ODR_100 0x18 // default ratio 100 samples per second
+#define MMA_8653_ODR_50 0x20
+#define MMA_8653_ODR_12_5 0x28
+#define MMA_8653_ODR_6_25 0x30
+#define MMA_8653_ODR_1_56 0x38
+
+uint8_t xSI02::_read_register(uint8_t offset)
+{
+  Wire.beginTransmission(_addr);
+  Wire.write(offset);
+  Wire.endTransmission(false);
+
+  Wire.requestFrom(_addr, (uint8_t)1);
+
+  if (Wire.available())
+    return Wire.read();
+  return 0;
+}
+
+void xSI02::_write_register(uint8_t b, uint8_t offset)
+{
+  Wire.beginTransmission(_addr);
+  Wire.write(offset);
+  Wire.write(b);
+  Wire.endTransmission();
+}
+
+void xSI02::initMotion()
+{
+  standby();
+  _write_register(MMA_8653_FF_MT_CFG, MMA_8653_FF_MT_CFG_XYZ);
+  _write_register(MMA_8653_FF_MT_THS, 0x04);
+  _write_register(MMA_8653_FF_MT_COUNT, 0x00);
+  _write_register(MMA_8653_CTRL_REG3, MMA_8653_CTRL_REG3_VALUE_OD);
+  _write_register(MMA_8653_CTRL_REG4, MMA_8653_CTRL_REG4_VALUE_INT_FFMT);
+  _write_register(MMA_8653_CTRL_REG5, MMA_8653_CTRL_REG4_VALUE_INT_FFMT);
+  active();
+  // return (_read_register(MMA_8653_PULSE_SRC) & MMA_8653_PULSE_SRC_EA);
+}
+
+void xSI02::standby()
+{
+  uint8_t reg1 = 0x00;
+  Wire.beginTransmission(_addr); // Set to status reg
+  Wire.write((uint8_t)MMA_8653_CTRL_REG1);
+  Wire.endTransmission();
+
+  Wire.requestFrom((uint8_t)_addr, (uint8_t)1);
+  if (Wire.available())
+  {
+    reg1 = Wire.read();
+  }
+  Wire.beginTransmission(_addr); // Reset
+  Wire.write((uint8_t)MMA_8653_CTRL_REG1);
+  Wire.write(reg1 & ~MMA_8653_CTRL_REG1_VALUE_ACTIVE);
+  Wire.endTransmission();
+}
+
+void xSI02::active()
+{
+  uint8_t reg1 = 0x00;
+  Wire.beginTransmission(_addr); // Set to status reg
+  Wire.write((uint8_t)MMA_8653_CTRL_REG1);
+  Wire.endTransmission();
+
+  Wire.requestFrom((uint8_t)_addr, (uint8_t)1);
+  if (Wire.available())
+  {
+    reg1 = Wire.read();
+  }
+  Wire.beginTransmission(_addr); // Reset
+  Wire.write(MMA_8653_CTRL_REG2);
+  Wire.write(0x09);
+  Wire.endTransmission();
+
+  Wire.beginTransmission(_addr); // Reset
+  Wire.write((uint8_t)MMA_8653_CTRL_REG1);
+  Wire.write(reg1 | MMA_8653_CTRL_REG1_VALUE_ACTIVE | (_highres ? 0 : MMA_8653_CTRL_REG1_VALUE_F_READ) | MMA_8653_ODR_6_25);
+  Wire.endTransmission();
+}
+
+float xSI02::geta2d(float gx, float gy)
+{
+  float a;
+
+  a = gx * gx;
+  a = fma(gy, gy, a);
+
+  return sqrt(a);
+}
+
+//gets the magnitude of the 3d vector
+//the formula is a^2 = x^2 + y^2 + z^2
+float xSI02::geta3d(float gx, float gy, float gz)
+{
+  float a;
+
+  //use floating point multiply-add cpu func
+  //sometimes we get better precision
+  a = gx * gx;
+  a = fma(gy, gy, a);
+  a = fma(gz, gz, a);
+
+  return sqrt(a);
+}
+
+float xSI02::_getRho(float ax, float ay, float az)
+{
+  return geta3d(_xg, _yg, _zg);
+}
+
+float xSI02::_getPhi(float ax, float ay, float az)
+{
+  return atan2(ay, ax) * _rad2deg;
+}
+
+float xSI02::_getTheta(float ax, float ay, float az)
+{
+  float rho = _getRho(ax, ay, az);
+
+  if (rho == 0.0)
+    return NAN;
+  else
+    return acos(az / rho) * _rad2deg;
+}
+
+//end private methods
+
+//begin public methods
+void xSI02::_begin(bool highres, uint8_t scale)
+{
+  Wire.begin();
+
+  _highres = highres;
+
+  _scale = scale;
+#ifdef _MMA_8653_FACTOR
+  _step_factor = (_highres ? 0.0039 : 0.0156); // Base value at 2g setting
+  if (_scale == 4)
+    _step_factor *= 2;
+  else if (_scale == 8)
+    _step_factor *= 4;
+#endif
+
+  uint8_t wai = _read_register(0x0D); // Get Who Am I from the device.
+  // return value for MMA8543Q is 0x3A
+
+  Wire.beginTransmission(_addr); // Reset
+  Wire.write(MMA_8653_CTRL_REG2);
+  Wire.write(MMA_8653_CTRL_REG2_RESET);
+  Wire.endTransmission();
+  delay(10); // Give it time to do the reset
+  standby();
+
+#ifdef _MMA_8653_PORTRAIT_LANDSCAPE
+  Wire.beginTransmission(_addr); // Set Portrait/Landscape mode
+  Wire.write(MMA_8653_PL_CFG);
+  Wire.write(0x80 | MMA_8653_PL_EN);
+  Wire.endTransmission();
+#endif
+
+  Wire.beginTransmission(_addr);
+  Wire.write(MMA_8653_XYZ_DATA_CFG);
+  if (_scale == 4 || _scale == 8)
+    Wire.write((_scale == 4) ? MMA_8653_4G_MODE : MMA_8653_8G_MODE);
+  else // Default to 2g mode
+    Wire.write((uint8_t)MMA_8653_2G_MODE);
+  Wire.endTransmission();
+  active();
+}
+
+uint8_t xSI02::getPLStatus()
+{
+  return _read_register(MMA_8653_PL_STATUS);
+}
+
+uint8_t xSI02::getPulse()
+{
+  _write_register(MMA_8653_PULSE_CFG, MMA_8653_PULSE_CFG_ELE);
+  return (_read_register(MMA_8653_PULSE_SRC) & MMA_8653_PULSE_SRC_EA);
+}
+
+float xSI02::getXG()
+{
+  return _xg;
+}
+
+float xSI02::getYG()
+{
+  return _yg;
+}
+
+float xSI02::getZG()
+{
+  return _zg;
+}
+
+int8_t xSI02::getAX()
+{
+  return _x;
+}
+
+int8_t xSI02::getAY()
+{
+  return _y;
+}
+
+int8_t xSI02::getAZ()
+{
+  return _z;
+}
+
+float xSI02::getRho()
+{
+  return _getRho(_xg, _yg, _zg);
+}
+
+float xSI02::getPhi()
+{
+  return _getPhi(_xg, _yg, _zg);
+}
+
+float xSI02::getTheta()
+{
+  return _getTheta(_xg, _yg, _zg);
+}
+
+int16_t rx, ry, rz;
+
+byte xSI02::update()
+{
+  Wire.beginTransmission(_addr); // Set to status reg
+  Wire.write((uint8_t)0x00);
+
+  byte error = Wire.endTransmission(false);
+
+  Wire.requestFrom((uint8_t)_addr, (uint8_t)(_highres ? 7 : 4));
+  if (Wire.available())
+  {
+    _stat = Wire.read();
+    if (_highres)
+    {
+      return error;
+      // _x = (int16_t)((Wire.read() << 8) || Wire.read() >> 6);
+      // _y = (int16_t)((Wire.read() << 8) || Wire.read() >> 6);
+      // _z = (int16_t)((Wire.read() << 8) || Wire.read() >> 6);
+#ifdef _MMA_8653_FACTOR
+      _xg = (_x / 64) * _step_factor;
+      _yg = (_y / 64) * _step_factor;
+      _zg = (_z / 64) * _step_factor;
+#endif
+    }
+    else
+    {
+      _x = Wire.read();
+      _y = Wire.read();
+      _z = Wire.read();
+#ifdef _MMA_8653_FACTOR
+      _xg = _x * _step_factor;
+      _yg = _y * _step_factor;
+      _zg = _z * _step_factor;
+#endif
+    }
+  }
+  return error;
+}
+
+bool xSI02::setInterrupt(uint8_t type, uint8_t pin, bool on)
+{
+  uint8_t current_value = _read_register(0x2D);
+
+  if (on)
+    current_value |= type;
+  else
+    current_value &= ~(type);
+
+  _write_register(0x2D, current_value);
+
+  uint8_t current_routing_value = _read_register(0x2E);
+
+  if (pin == 1)
+  {
+    current_routing_value &= ~(type);
+  }
+  else if (pin == 2)
+  {
+    current_routing_value |= type;
+  }
+
+  _write_register(0x2E, current_routing_value);
+}
+
+bool xSI02::disableAllInterrupts()
+{
+  _write_register(0x2D, 0);
+}
+
+int16_t xSI02::getRoll()
+{
+  return 180 * atan2(getAY() * 0.0156, sqrt(getAX() * 0.0156 * getAX() * 0.0156 + getAZ() * 0.0156 * getAZ() * 0.0156)) / PI;
+}
+
+int16_t xSI02::getPitch()
+{
+  return 180 * atan2(getAX() * 0.0156, sqrt(getAY() * 0.0156 * getAY() * 0.0156 + getAZ() * 0.0156 * getAZ() * 0.0156)) / PI;
+}
+
+float xSI02::getGForce()
+{
+  float gforce = sqrt((getAX() * 0.0156 * getAX() * 0.0156) + (getAY() * 0.0156 * getAY() * 0.0156) + (getAZ() * 0.0156 * getAZ() * 0.0156));
+  return gforce;
 }
